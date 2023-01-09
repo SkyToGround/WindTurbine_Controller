@@ -7,7 +7,7 @@ public:
 	TurbineLogic() {}
 	bool isTurbineOn() { return TurbineOn;}
 	void determineOnState(int start_rpm, int stop_rpm, int current_rpm) {
-		unsigned int CurrentTime = millis();
+		uint32_t CurrentTime = millis();
     bool DeterminedState = current_rpm >= start_rpm or (TurbineOn and current_rpm >= stop_rpm);
 		if (DeterminedState != TurbineOn and CurrentTime < LastStateChangeTime + StateChangeWaitMS) {
 			return;
@@ -17,20 +17,20 @@ public:
 	}
 private:
 	bool TurbineOn = false;
-	const unsigned int StateChangeWaitMS = 5000;
-	unsigned int LastStateChangeTime = 0;
+	const uint32_t StateChangeWaitMS = 5000;
+	uint32_t LastStateChangeTime = 0;
 };
 
 class RPMMeasurement {
 public:
 	RPMMeasurement() {}
-	void newPeriod(unsigned int StartTimeMS) {
+	void newPeriod(uint32_t StartTimeMS) {
 		FirstPulseTimeMS = StartTimeMS;
 		LastPulseTimeMS = StartTimeMS;
 		RegisteredPulses = 1;
 	}
 	void registerPulse() {
-		unsigned int CurrentTimeMS = millis();
+		uint32_t CurrentTimeMS = millis();
 		if (CurrentTimeMS <  FirstPulseTimeMS) {
 			newPeriod(CurrentTimeMS);
 			return;
@@ -52,7 +52,7 @@ public:
 		RegisteredPulses++;
 	}
 	void doRPMCalc() {
-		unsigned int CurrentTimeMS = millis();
+    uint32_t CurrentTimeMS = millis();
 		noInterrupts();
 		if (CurrentTimeMS > LastPulseTimeMS + AveragingTimeMS) {
 			if (RegisteredPulses > 2) {
@@ -76,9 +76,9 @@ private:
   void calcRPM() {
     CurrentRPM = round(60000.0 / ((LastPulseTimeMS - FirstPulseTimeMS) / float(RegisteredPulses)));
   }
-	unsigned int AveragingTimeMS = 1000;
-	unsigned int FirstPulseTimeMS = 0;
-	unsigned int LastPulseTimeMS = 0;
+	uint32_t AveragingTimeMS = 1000;
+	uint32_t FirstPulseTimeMS = 0;
+	uint32_t LastPulseTimeMS = 0;
 	unsigned int RegisteredPulses = 0;
 	unsigned int CurrentRPM = 0;
 	unsigned int const DeBounceTimeMS = 5;
@@ -172,8 +172,8 @@ class RPMSettingsTracker {
     const int lower_rpm_limit = 1400;
     const int upper_rpm_limit = 1600;
     bool WaitingForSave = false;
-    unsigned int LastRPMChangeTimestamp = 0;
-    const unsigned int SaveRPMTimeoutMS = 5000;
+    uint32_t LastRPMChangeTimestamp = 0;
+    const uint32_t SaveRPMTimeoutMS = 5000;
 };
 
 U8G2_SSD1306_128X64_VCOMH0_1_4W_HW_SPI u8g2(U8G2_R2, U8X8_PIN_NONE, 8, 9);
@@ -182,8 +182,8 @@ char buffer[40];
 
 
 int selected_row = 0;
-unsigned int button_time = 0;
-const int button_timeout = 150;
+uint32_t button_time = 0;
+const uint32_t button_timeout = 150;
 const int RELAY_PIN = 4;
 const int RPM_PIN = 2;
 const int SELECT_BTN_PIN = 4;
@@ -249,7 +249,7 @@ void render_text(int current_rpm, int start_rpm, int stop_rpm, bool on, int mark
 }
 
 bool button_is_pressed(int button) {
-  unsigned int c_time = millis();
+  uint32_t c_time = millis();
   if (c_time < button_time) {
     button_time = 0;
   }
@@ -258,9 +258,6 @@ bool button_is_pressed(int button) {
   }
   if (not digitalRead(button)) {
     button_time = c_time;
-    Serial.print("Button ");
-    Serial.print(button);
-    Serial.print(" is pressed.\n");
     return true; 
   }
   return false;
