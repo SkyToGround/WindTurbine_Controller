@@ -1,5 +1,6 @@
 #include <U8g2lib.h>
 #include <EEPROM.h>
+#include <math.h>
 
 class TurbineLogic {
 public:
@@ -7,7 +8,7 @@ public:
 	bool isTurbineOn() { return TurbineOn;}
 	void determineOnState(int start_rpm, int stop_rpm, int current_rpm) {
 		unsigned int CurrentTime = millis();
-		bool DeterminedState = current_rpm >= start_rpm an current_rpm <= start_rpm;
+    bool DeterminedState = current_rpm >= start_rpm or (TurbineOn and current_rpm >= stop_rpm);
 		if (DeterminedState != TurbineOn and CurrentTime < LastStateChangeTime + StateChangeWaitMS) {
 			return;
 		}
@@ -39,7 +40,7 @@ public:
 		}
 		if (CurrentTimeMS > FirstPulseTimeMS + AveragingTimeMS) {
 			if (RegisteredPulses >= 1) {
-				CurrentRPM = 60000 / ((CurrentTimeMS - FirstPulseTimeMS) / RegisteredPulses);
+				calcRPM();
 			} else {
 				CurrentRPM = 0;
 			}
@@ -55,41 +56,33 @@ public:
 		noInterrupts();
 		if (CurrentTimeMS > LastPulseTimeMS + AveragingTimeMS) {
 			if (RegisteredPulses > 2) {
-				CurrentRPM = 60000 / ((LastPulseTimeMS - FirstPulseTimeMS) / RegisteredPulses);
+				calcRPM();
 			} else {
 				CurrentRPM = 0;
 			}
 			FirstPulseTimeMS = 0;
 			LastPulseTimeMS = 0;
-			RegisteredPulses = 0
+			RegisteredPulses = 0;
 		}
+    Serial.print("Pulses: ");
+    Serial.print(RegisteredPulses);
+    Serial.print(", RPM: ");
+    Serial.print(CurrentRPM);
+    Serial.print("\n");
 		interrupts();
 	}
 	unsigned int getRPM() { return CurrentRPM; }
 private:
-	unsigned int AveragingTimeMS = 500;
+  void calcRPM() {
+    CurrentRPM = round(60000.0 / ((LastPulseTimeMS - FirstPulseTimeMS) / float(RegisteredPulses)));
+  }
+	unsigned int AveragingTimeMS = 1000;
 	unsigned int FirstPulseTimeMS = 0;
 	unsigned int LastPulseTimeMS = 0;
 	unsigned int RegisteredPulses = 0;
 	unsigned int CurrentRPM = 0;
 	unsigned int const DeBounceTimeMS = 5;
 };
-
-U8G2_SSD1306_128X64_VCOMH0_1_4W_HW_SPI u8g2(U8G2_R2, U8X8_PIN_NONE, 8, 9);
-
-char buffer[40];
-int start_rpm = 1500;
-const int start_rpm_addr = 0;
-const int stop_rpm_addr = 2;
-int stop_rpm = 1600;
-const int lower_rpm_limit = 1500;
-const int upper_rpm_limit = 1550;
-int selected_row = 0;
-unsigned int button_time = 0;
-const int button_timeout = 100;
-const int RELAY_PIN = 4;
-RPMMeasurement rpm_calc;
-TurbineLogic logic;
 
 void writeIntToEEPROM(int address, int number)
 { 
@@ -106,32 +99,114 @@ int readIntFromEEPROM(int address)
   return (byte1 << 8) + byte2;
 }
 
-int get_rpm_from_eeprom(int addr) {
-  int stored_value = readIntFromEEPROM(addr);
-  if (stored_value < lower_rpm_limit) {
-    return lower_rpm_limit;
-  }
-  if (stored_value > upper_rpm_limit) {
-    return upper_rpm_limit - 1;
-  }
-  return stored_value;
-}
+class RPMSettingsTracker {
+  public:
+    RPMSettingsTracker() {
+      c_start_rpm = readIntFromEEPROM(start_rpm_addr);
+      if (c_start_rpm <= lower_rpm_limit or c_start_rpm > upper_rpm_limit) {
+        c_start_rpm = upper_rpm_limit;
+      }
+      c_stop_rpm = readIntFromEEPROM(stop_rpm_addr);
+      if (c_stop_rpm < lower_rpm_limit or c_stop_rpm + 1 >= c_start_rpm) {
+        c_stop_rpm = lower_rpm_limit;
+      }
+    }
+
+    int start_rpm() {
+      return c_start_rpm;
+    }
+
+    int stop_rpm() {
+      return c_stop_rpm;
+    }
+
+    void saveRPMSettings() {
+      if (WaitingForSave and millis() > LastRPMChangeTimestamp + SaveRPMTimeoutMS) {
+        WaitingForSave = false;
+        writeIntToEEPROM(start_rpm_addr, c_start_rpm);
+        writeIntToEEPROM(stop_rpm_addr, c_stop_rpm);
+      }
+    }
+
+    void decrease_start_rpm() {
+      if (c_start_rpm - 1 <= c_stop_rpm) {
+        return;
+      }
+      c_start_rpm -= 1;
+      start_save_timer();
+    }
+
+    void increase_start_rpm() {
+      if (c_start_rpm == upper_rpm_limit) {
+        return;
+      }
+      c_start_rpm += 1;
+      start_save_timer();
+    }
+
+    void decrease_stop_rpm() {
+      if (c_stop_rpm <= upper_rpm_limit) {
+        return;
+      }
+      c_stop_rpm -= 1;
+      start_save_timer();
+    }
+
+    void increase_stop_rpm() {
+      if (c_stop_rpm + 1 >= c_start_rpm) {
+        return;
+      }
+      c_stop_rpm += 1;
+      start_save_timer();
+    }
+  private:
+    void start_save_timer() {
+      WaitingForSave = true;
+      LastRPMChangeTimestamp = millis();
+    }
+    int c_start_rpm;
+    int c_stop_rpm;
+
+    const int start_rpm_addr = 0;
+    const int stop_rpm_addr = 2;
+    const int lower_rpm_limit = 1400;
+    const int upper_rpm_limit = 1600;
+    bool WaitingForSave = false;
+    unsigned int LastRPMChangeTimestamp = 0;
+    const unsigned int SaveRPMTimeoutMS = 5000;
+};
+
+U8G2_SSD1306_128X64_VCOMH0_1_4W_HW_SPI u8g2(U8G2_R2, U8X8_PIN_NONE, 8, 9);
+
+char buffer[40];
+
+
+int selected_row = 0;
+unsigned int button_time = 0;
+const int button_timeout = 150;
+const int RELAY_PIN = 4;
+const int RPM_PIN = 2;
+const int SELECT_BTN_PIN = 4;
+const int INCR_BTN_PIN = 5;
+const int DECR_BTN_PIN = 6;
+RPMMeasurement rpm_calc;
+TurbineLogic logic;
+RPMSettingsTracker RPMSettings;
 
 void on_interrupt() {
 	rpm_calc.registerPulse();
 }
 
 void setup() {
-  pinMode(2, INPUT);
-  pinMode(3, INPUT_PULLUP);
-  pinMode(4, INPUT_PULLUP);
+  pinMode(SELECT_BTN_PIN, INPUT);
+  pinMode(INCR_BTN_PIN, INPUT);
+  pinMode(DECR_BTN_PIN, INPUT);
+  u8g2.setBusClock(8000000);
   u8g2.initDisplay();
   u8g2.setPowerSave(0);
-  Serial.begin(9600);
-  start_rpm = get_rpm_from_eeprom(start_rpm_addr);
-  stop_rpm = get_rpm_from_eeprom(stop_rpm_addr);
-  pinMode(1, INPUT);
-  attachInterrupt(digitalPinToInterrupt(1), ISR, FALLING);
+  Serial.begin(115200);
+  pinMode(RPM_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(RPM_PIN), on_interrupt, FALLING);
 }
 
 void render_line(int line, char *format_string, int value, bool inverted) {
@@ -183,65 +258,39 @@ bool button_is_pressed(int button) {
   }
   if (not digitalRead(button)) {
     button_time = c_time;
-    Serial.print("Button pressed!\n");
+    Serial.print("Button ");
+    Serial.print(button);
+    Serial.print(" is pressed.\n");
     return true; 
   }
   return false;
 }
 
-void decrease_start_rpm() {
-  if (start_rpm <= lower_rpm_limit) {
-    return;
-  }
-  start_rpm -= 1;
-}
-
-void increase_start_rpm() {
-  if (start_rpm == upper_rpm_limit or start_rpm + 1 >= stop_rpm) {
-    return;
-  }
-  start_rpm += 1;
-}
-
-void decrease_stop_rpm() {
-  if (stop_rpm <= start_rpm or stop_rpm <= lower_rpm_limit) {
-    return;
-  }
-  stop_rpm -= 1;
-}
-
-void increase_stop_rpm() {
-  if (stop_rpm >= upper_rpm_limit) {
-    return;
-  }
-  stop_rpm += 1;
-}
-
 void loop() {
 	rpm_calc.doRPMCalc();
-	logic.determineOnState(start_rpm, stop_rpm, rpm_calc.getRPM());
-	
-  render_text(rpm_calc.getRPM(), start_rpm, stop_rpm, logic.isTurbineOn(), selected_row);
-  if (button_is_pressed(2)) {
+	logic.determineOnState(RPMSettings.start_rpm(), RPMSettings.stop_rpm(), rpm_calc.getRPM());
+  render_text(rpm_calc.getRPM(), RPMSettings.start_rpm(), RPMSettings.stop_rpm(), logic.isTurbineOn(), selected_row);
+  if (button_is_pressed(SELECT_BTN_PIN)) {
     selected_row = selected_row ^ 0x01;
   }
-  if (button_is_pressed(3)) {
+  if (button_is_pressed(INCR_BTN_PIN)) {
     switch (selected_row) {
       case 0:
-        decrease_start_rpm();
+        RPMSettings.decrease_start_rpm();
         break;
       case 1:
-        decrease_stop_rpm();
+        RPMSettings.decrease_stop_rpm();
         break;
     }
-  } else if (button_is_pressed(4)) {
+  } else if (button_is_pressed(DECR_BTN_PIN)) {
     switch (selected_row) {
       case 0:
-        increase_start_rpm();
+        RPMSettings.increase_start_rpm();
         break;
       case 1:
-        increase_stop_rpm();
+        RPMSettings.increase_stop_rpm();
         break;
     }
   }
+  RPMSettings.saveRPMSettings();
 }
