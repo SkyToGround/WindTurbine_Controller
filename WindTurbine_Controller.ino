@@ -27,7 +27,7 @@ public:
 	void newPeriod(uint32_t StartTimeMS) {
 		FirstPulseTimeMS = StartTimeMS;
 		LastPulseTimeMS = StartTimeMS;
-		RegisteredPulses = 1;
+		RegisteredPulses = 0;
 	}
 	void registerPulse() {
 		uint32_t CurrentTimeMS = millis();
@@ -64,11 +64,6 @@ public:
 			LastPulseTimeMS = 0;
 			RegisteredPulses = 0;
 		}
-    Serial.print("Pulses: ");
-    Serial.print(RegisteredPulses);
-    Serial.print(", RPM: ");
-    Serial.print(CurrentRPM);
-    Serial.print("\n");
 		interrupts();
 	}
 	unsigned int getRPM() { return CurrentRPM; }
