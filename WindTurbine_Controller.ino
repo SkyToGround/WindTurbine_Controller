@@ -140,7 +140,7 @@ class RPMSettingsTracker {
     }
 
     void decrease_stop_rpm() {
-      if (c_stop_rpm <= upper_rpm_limit) {
+      if (c_stop_rpm <= lower_rpm_limit) {
         return;
       }
       c_stop_rpm -= 1;
@@ -181,8 +181,8 @@ uint32_t button_time = 0;
 const uint32_t button_timeout = 150;
 const int RELAY_PIN = 4;
 const int RPM_PIN = 2;
-const int SELECT_BTN_PIN = 4;
-const int INCR_BTN_PIN = 5;
+const int SELECT_BTN_PIN = 5;
+const int INCR_BTN_PIN = 7;
 const int DECR_BTN_PIN = 6;
 RPMMeasurement rpm_calc;
 TurbineLogic logic;
@@ -193,12 +193,17 @@ void on_interrupt() {
 }
 
 void setup() {
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, 0);
   pinMode(SELECT_BTN_PIN, INPUT);
+  pinMode(SELECT_BTN_PIN, INPUT_PULLUP);
   pinMode(INCR_BTN_PIN, INPUT);
   pinMode(DECR_BTN_PIN, INPUT);
+  pinMode(RELAY_PIN, OUTPUT);
   u8g2.setBusClock(8000000);
   u8g2.initDisplay();
   u8g2.setPowerSave(0);
+  u8g2.setContrast(0);
   Serial.begin(115200);
   pinMode(RPM_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(RPM_PIN), on_interrupt, FALLING);
@@ -262,6 +267,7 @@ void loop() {
 	rpm_calc.doRPMCalc();
 	logic.determineOnState(RPMSettings.start_rpm(), RPMSettings.stop_rpm(), rpm_calc.getRPM());
   render_text(rpm_calc.getRPM(), RPMSettings.start_rpm(), RPMSettings.stop_rpm(), logic.isTurbineOn(), selected_row);
+  digitalWrite(RELAY_PIN, logic.isTurbineOn());
   if (button_is_pressed(SELECT_BTN_PIN)) {
     selected_row = selected_row ^ 0x01;
   }
